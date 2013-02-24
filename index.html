@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html manifest="indexeddb.manifest">
+<head>
+<meta name="viewport" content="width=device-width">
+<title>Indexed DB Example</title>
+<link rel="stylesheet" type="text/css" href="default.css" media="all" />
+<script src="jquery-1.7.2.min.js"></script>
+</head>
+<body>
+<div class="header">
+	<h1>Indexed DB Example</h1>
+    <div class="addbar">
+    	<input type="text" name="adddata" id="adddata" /> 
+        <a id="addbtn"><img src="add_small.png" alt="" border="0" /></a>
+    </div>
+    <p><a id="clearbtn">Clear all items in list</a></p>
+	<p>This is a simple list where you can add and delete items from the list either offline or with internet connection</p>
+</div>
+<div class="tophalf">
+    <div class="listcontainer">
+    </div>
+</div>
+<script type="text/javascript">
+	const DB_NAME = 'indexeddb-demo'; 	// database name
+	const DB_VERSION = 3;  				// database version (change if new fields are added)
+	const DB_TABLE_NAME = 'listtable';	// table name
+
+	var db; // public object for the database conneciton
+
+//saving webkitIndexedDB in global namespace
+	if ('webkitIndexedDB' in window) {
+		window.indexedDB = window.webkitIndexedDB;
+		window.IDBTransaction = window.webkitIDBTransaction;
+		window.IDBKeyRange = window.webkitIDBKeyRange;
+		window.IDBCursor = window.webkitIDBCursor;
+	}
+
+// open the database
+	function openDb() {
+		var req = indexedDB.open(DB_NAME, DB_VERSION);
+		req.onsuccess = function (evt) { // success connection to the database so display rows
+			db = this.result;
+			displayRows();
+		};
+		req.onerror = function (evt) { // error - display error
+			displayActionFailure("DB error: "+ evt.target.errorCode);
+		};
+		req.onupgradeneeded = function (evt) { // upgrade version has changed so upgrade
+			var store = evt.currentTarget.result.createObjectStore(
+				DB_TABLE_NAME, { keyPath: 'id', autoIncrement: true });
+		
+			store.createIndex('title', 'title', { unique: false }); // create fields
+			//store.createIndex('contents', 'contents', { unique: false }); // any other data you wish to add to the list
+		};
+	}
+
+// get the object data of the database table
+	function getObjectStore(storename, mode) {
+		var tx = db.transaction(storename, mode);
+		return tx.objectStore(storename);
+	}
+
+// display rows in the table
+	function displayRows(store) {
+		if (typeof store == 'undefined')
+			store = getObjectStore(DB_TABLE_NAME, 'readonly'); // no table passed so use the default one
+		
+		var listcontainer = $('.listcontainer');
+		listcontainer.empty(); // clear existing data in the container
+		
+		var req;
+		req = store.count();
+		req.onsuccess = function(evt) {
+			// listing completed
+		};
+		req.onerror = function(evt) { // error - display error to the user
+			displayActionFailure(this.error);
+		};
+		
+		req = store.openCursor();
+		req.onsuccess = function(evt) {
+			var cursor = evt.target.result;
+			if (cursor) { // If the cursor is pointing at something, ask for the data
+				req = store.get(cursor.key);
+				req.onsuccess = function (evt) {
+					var value = evt.target.result;
+					var list_item = '<div id="a' + cursor.key + '" class="listitem">' + value.title +  ' <a class="delbtn"><img src="icon_delete_small.png" alt="" border="0" /></a></div>'; // create html for each element
+					listcontainer.append(list_item);
+				};
+				cursor.continue();// Move on to the next object in store
+			}
+		};
+	}
+
+
+// add new row to table
+	function addRow(title) {
+		var obj = { title: title }; // structure of the object to save
+		
+		var store = getObjectStore(DB_TABLE_NAME, 'readwrite');// get the object store allowing read and write
+		var req;
+		try {
+			req = store.add(obj); // add row
+		} catch (e) {
+			throw e;
+		}
+		req.onsuccess = function (evt) { // success - display table columns
+			displayRows(store);
+		};
+		req.onerror = function() { // fail - display error
+			displayActionFailure(this.error);
+		};
+	}
+
+// truncate table
+	function removeAll() {
+  		store = getObjectStore(DB_TABLE_NAME, 'readwrite'); // get the object store allowing read and write
+  		var clearRequest = store.clear(); // truncate the table
+		clearRequest.onsuccess = function(event){ // success - display table columns
+			displayRows();
+		};
+		clearRequest.onerror = function(event){ // fail - display error
+			 displayActionFailure(this.error);
+		};
+	}
+
+// delete from from table
+	function deleteRow(key) {
+		key = Number(key); // set as number - required to work
+		store = getObjectStore(DB_TABLE_NAME, 'readwrite'); // get the object store allowing read and write
+		var req = store.get(key);  // get row from table
+		req.onsuccess = function(evt) { // success - able to get the row from the table
+			var record = evt.target.result;
+			if (typeof record == 'undefined') { // row is empty
+				displayActionFailure("No record found");
+				return;
+			}
+			req = store.delete(key); // delete row
+			req.onsuccess = function(evt) { // success - display table columns
+				displayRows(store);
+			};
+			req.onerror = function (evt) { // fail - display error
+				console.error("deleteRow:", evt.target.errorCode);
+			};
+		};
+		req.onerror = function (evt) { // fail - could not select row from key
+			console.error("deleteRow:", evt.target.errorCode);
+		};
+	}
+
+// default error response to the user
+	function displayActionFailure(msg) {
+		msg = typeof msg != 'undefined' ? "Failure: " + msg : "Failure";
+		alert(msg);
+	}
+
+// open database
+	openDb();
+
+// click setting created
+	$(document).ready(function() {
+		
+		// Click function when adding new items to the list
+		$('#addbtn').on('click', function() {
+			if ($('#adddata').val() != ''){
+				addRow($('#adddata').val()); // add new data
+				$('#adddata').val(''); // clear field
+			}
+		});
+		
+		// Click function when deleting items from the list
+		$('.delbtn').live('click', function() {
+			var delListItem = $(this).parent().attr('id'); // get the id of the item deleted
+			deleteRow(delListItem.substring(1)); // delete item
+		});
+		
+		// clear local data saved
+		$('#clearbtn').on('click', function() {
+			removeAll(); // truncate existing table
+		});
+	});
+  
+</script>
+</body>
+</html>
